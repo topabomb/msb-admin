@@ -1,0 +1,91 @@
+<div style="margin-top:12px;">
+  <div class="alert alert-info">SSH native client — commands run through the built-in SSH protocol.</div>
+
+  <div style="display:flex;gap:8px;margin-bottom:8px;">
+    <input id="ssh-cmd" type="text" placeholder="command (e.g. uname -a)" style="flex:1;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:monospace;">
+    <button class="btn btn-primary" onclick="sshExec('{{ name }}')">Run</button>
+  </div>
+
+  <div id="ssh-output" style="display:none;margin-bottom:16px;">
+    <pre class="output" id="ssh-output-text" style="max-height:300px;"></pre>
+  </div>
+
+  <details style="margin-top:12px;">
+    <summary style="cursor:pointer;font-weight:600;font-size:13px;">SFTP — File Operations</summary>
+    <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;padding:12px;background:#f9fafb;border-radius:6px;">
+      <div style="display:flex;gap:8px;">
+        <input id="sftp-path" type="text" placeholder="/path/to/file" style="flex:1;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;font-family:monospace;">
+        <input id="sftp-content" type="text" placeholder="file content (for write)" style="flex:2;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;font-family:monospace;">
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">
+        <button class="btn btn-outline btn-sm" onclick="sftpRead('{{ name }}')">Read</button>
+        <button class="btn btn-outline btn-sm" onclick="sftpWrite('{{ name }}')">Write</button>
+        <button class="btn btn-outline btn-sm" onclick="sftpMkdir('{{ name }}')">Mkdir</button>
+        <button class="btn btn-outline btn-sm" onclick="sftpRemove('{{ name }}')">Remove</button>
+      </div>
+      <div id="sftp-result" style="font-size:12px;"></div>
+    </div>
+  </details>
+</div>
+
+<script>
+async function sshExec(name) {
+  const cmd = document.getElementById('ssh-cmd').value.trim();
+  if (!cmd) return;
+  const out = document.getElementById('ssh-output');
+  const text = document.getElementById('ssh-output-text');
+  out.style.display = 'block';
+  text.textContent = 'Running...';
+  try {
+    const r = await fetch('/api/sandboxes/' + encodeURIComponent(name) + '/ssh/exec', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'command=' + encodeURIComponent(cmd)});
+    const data = await r.json();
+    if (data.error) { text.textContent = 'Error: ' + data.error; return; }
+    text.textContent = (data.stdout || '') + (data.stderr || '') + '\n\n[exit code: ' + data.exit_code + ']';
+  } catch(e) { text.textContent = 'Error: ' + e.message; }
+}
+async function sftpRead(name) {
+  const path = document.getElementById('sftp-path').value.trim();
+  if (!path) return;
+  const el = document.getElementById('sftp-result');
+  try {
+    const r = await fetch('/api/sandboxes/' + encodeURIComponent(name) + '/ssh/sftp/read', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'path=' + encodeURIComponent(path)});
+    const data = await r.json();
+    if (data.error) { el.innerHTML = '<span style="color:#ef4444;">' + data.error + '</span>'; return; }
+    el.innerHTML = '<pre style="background:#1a1a2e;color:#e0e0e0;padding:8px;border-radius:4px;font-size:11px;max-height:200px;overflow:auto;">' + data.content + '</pre>';
+  } catch(e) { el.innerHTML = '<span style="color:#ef4444;">' + e.message + '</span>'; }
+}
+async function sftpWrite(name) {
+  const path = document.getElementById('sftp-path').value.trim();
+  const content = document.getElementById('sftp-content').value;
+  if (!path) return;
+  const el = document.getElementById('sftp-result');
+  try {
+    const r = await fetch('/api/sandboxes/' + encodeURIComponent(name) + '/ssh/sftp/write', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'path=' + encodeURIComponent(path) + '&content=' + encodeURIComponent(content)});
+    const data = await r.json();
+    if (data.error) { el.innerHTML = '<span style="color:#ef4444;">' + data.error + '</span>'; return; }
+    el.innerHTML = '<span style="color:#22c55e;">Written to ' + path + '</span>';
+  } catch(e) { el.innerHTML = '<span style="color:#ef4444;">' + e.message + '</span>'; }
+}
+async function sftpMkdir(name) {
+  const path = document.getElementById('sftp-path').value.trim();
+  if (!path) return;
+  const el = document.getElementById('sftp-result');
+  try {
+    const r = await fetch('/api/sandboxes/' + encodeURIComponent(name) + '/ssh/sftp/mkdir', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'path=' + encodeURIComponent(path)});
+    const data = await r.json();
+    if (data.error) { el.innerHTML = '<span style="color:#ef4444;">' + data.error + '</span>'; return; }
+    el.innerHTML = '<span style="color:#22c55e;">Created ' + path + '</span>';
+  } catch(e) { el.innerHTML = '<span style="color:#ef4444;">' + e.message + '</span>'; }
+}
+async function sftpRemove(name) {
+  const path = document.getElementById('sftp-path').value.trim();
+  if (!path) return;
+  const el = document.getElementById('sftp-result');
+  try {
+    const r = await fetch('/api/sandboxes/' + encodeURIComponent(name) + '/ssh/sftp/remove', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'path=' + encodeURIComponent(path)});
+    const data = await r.json();
+    if (data.error) { el.innerHTML = '<span style="color:#ef4444;">' + data.error + '</span>'; return; }
+    el.innerHTML = '<span style="color:#22c55e;">Removed ' + path + '</span>';
+  } catch(e) { el.innerHTML = '<span style="color:#ef4444;">' + e.message + '</span>'; }
+}
+</script>

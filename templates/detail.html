@@ -36,6 +36,7 @@
         <a class="btn btn-outline btn-sm" href="/sandboxes/{{ name }}/logs-panel" hx-get="/sandboxes/{{ name }}/logs-panel" hx-target="#detail-tabs" hx-swap="innerHTML">Logs</a>
         <a class="btn btn-outline btn-sm" href="/sandboxes/{{ name }}/metrics-panel" hx-get="/sandboxes/{{ name }}/metrics-panel" hx-target="#detail-tabs" hx-swap="innerHTML">Metrics</a>
         <a class="btn btn-outline btn-sm" href="/sandboxes/{{ name }}/fs-panel" hx-get="/sandboxes/{{ name }}/fs-panel" hx-target="#detail-tabs" hx-swap="innerHTML">Files</a>
+        <a class="btn btn-outline btn-sm" href="/sandboxes/{{ name }}/ssh-panel" hx-get="/sandboxes/{{ name }}/ssh-panel" hx-target="#detail-tabs" hx-swap="innerHTML">SSH</a>
       </div>
       <div id="detail-tabs"></div>
       {% else %}
@@ -50,6 +51,7 @@
       <button class="btn btn-success" hx-post="/sandboxes/{{ name }}/start" hx-target="#detail-tabs" hx-swap="innerHTML">Start</button>
       {% endif %}
       <button class="btn btn-danger" hx-post="/sandboxes/{{ name }}/kill" hx-target="#detail-tabs" hx-swap="innerHTML" hx-confirm="Kill {{ sb.name }}?">Kill</button>
+      <button class="btn btn-outline" hx-post="/sandboxes/{{ name }}/drain" hx-target="#detail-tabs" hx-swap="innerHTML" hx-confirm="Drain {{ sb.name }}? (existing commands finish, new ones rejected)">Drain</button>
       <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">Close</button>
     </div>
   </div>

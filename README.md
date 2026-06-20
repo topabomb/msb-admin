@@ -14,8 +14,11 @@
 - 分页列表 + 搜索过滤（`?offset=&limit=&search=`)
 - 实时日志（WebSocket）
 - 实时指标：CPU、内存（WebSocket）
+- 集群级指标：所有沙箱的 CPU%、内存、磁盘 R/W、网络 R/W、运行时长（WebSocket 自动刷新）
 - 交互式网页终端（xterm.js + WebSocket）
 - 执行任意命令并查看结果
+- SSH 远程执行 + SFTP 文件读写/创建/删除
+- 沙箱排水（`request_drain`），安全下线
 
 ### 镜像管理
 - 查看所有可用镜像及元数据
@@ -23,9 +26,11 @@
 - 清理未使用的镜像层，回收磁盘空间
 
 ### 快照管理
-- 查看、创建、删除快照
+- 查看、创建、删除快照（支持 labels 和 record_integrity）
 - 导出快照为可下载文件（临时文件自动清理）
 - 从快照恢复沙箱
+- 导入快照从文件
+- 重建快照索引
 - 验证快照完整性
 
 ### 卷管理
@@ -85,7 +90,7 @@ uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 pytest -v
 ```
 
-全部 38 个测试用例覆盖每个 API 端点及边界情况。
+全部 43 个测试用例覆盖每个 API 端点及边界情况。
 
 ## Docker
 
@@ -134,6 +139,13 @@ docker run -d \
 | POST | `/api/sandboxes/batch/{action}` | 批量操作（start/stop/kill/delete） |
 | GET | `/api/sandboxes/{name}/exec` | 在沙箱中执行命令 |
 | POST | `/api/sandboxes/{name}/exec` | 执行自定义命令 |
+| POST | `/api/sandboxes/{name}/drain` | 沙箱排水（安全下线） |
+| POST | `/api/sandboxes/{name}/ssh/exec` | SSH 远程执行命令 |
+| POST | `/api/sandboxes/{name}/ssh/sftp/read` | SFTP 读取文件 |
+| POST | `/api/sandboxes/{name}/ssh/sftp/write` | SFTP 写入文件 |
+| POST | `/api/sandboxes/{name}/ssh/sftp/mkdir` | SFTP 创建目录 |
+| POST | `/api/sandboxes/{name}/ssh/sftp/remove` | SFTP 删除文件 |
+| GET | `/api/metrics/fleet` | 集群级实时指标 |
 
 ### 镜像
 
@@ -150,6 +162,8 @@ docker run -d \
 | GET | `/api/snapshots` | 列出快照 |
 | POST | `/api/snapshots/create` | 从沙箱创建快照 |
 | GET | `/api/snapshots/{name}/export` | 下载快照文件 |
+| POST | `/api/snapshots/import` | 从文件导入快照 |
+| POST | `/api/snapshots/reindex` | 重建快照索引 |
 | POST | `/api/snapshots/restore` | 从快照恢复沙箱 |
 | GET | `/api/snapshots/{name}/verify` | 验证快照完整性 |
 | DELETE | `/api/snapshots/{name}` | 删除快照 |
@@ -184,7 +198,7 @@ docker run -d \
 ```
 msb-admin/
 ├── main.py              # FastAPI 应用（所有路由、处理器、WebSocket）
-├── test_app.py          # 38 个 pytest 测试用例
+├── test_app.py          # 43 个 pytest 测试用例
 ├── requirements.txt     # Python 依赖
 ├── pytest.ini           # 测试配置
 ├── templates/           # Jinja2 HTML 模板
@@ -192,6 +206,7 @@ msb-admin/
 │   ├── sandbox_table.html
 │   ├── detail.html      # 沙箱详情（端口、日志、指标、终端）
 │   ├── create_form.html
+│   ├── fleet_metrics.html
 │   ├── logs_panel.html
 │   ├── metrics_panel.html
 │   ├── terminal.html
@@ -200,6 +215,7 @@ msb-admin/
 │   ├── fs_panel.html
 │   ├── images.html
 │   ├── snapshots.html
+│   ├── ssh_panel.html
 │   └── volumes.html
 ├── static/              # 静态资源
 └── .gitignore

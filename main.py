@@ -9,11 +9,15 @@ from pathlib import Path
 from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from microsandbox import Sandbox, SecurityProfile, Volume, Image, Snapshot
+from microsandbox import (
+    Sandbox, SecurityProfile, Volume, Image, Snapshot,
+    all_sandbox_metrics, Patch, Network, Secret, InitConfig,
+)
 
 SDK_TIMEOUT = 60
 EXPORT_DIR = "/tmp/msb-admin-exports"
-templates = Jinja2Templates(directory="templates")
+_BASE = os.path.dirname(os.path.abspath(__file__))
+templates = Jinja2Templates(directory=os.path.join(_BASE, "templates"))
 
 
 def _now() -> str:
@@ -237,6 +241,36 @@ async def health():
     }
 
 
+# ── Fleet Metrics ────────────────────────────────────────────────────────────
+
+@app.get("/api/metrics/fleet")
+async def fleet_metrics():
+    try:
+        all_metrics = await asyncio.wait_for(all_sandbox_metrics(), timeout=10)
+        result = []
+        for name, m in all_metrics.items():
+            result.append({
+                "name": name,
+                "cpu_percent": m.cpu_percent,
+                "memory_mb": round(m.memory_bytes / 1024 / 1024, 1) if m.memory_bytes else 0,
+                "memory_limit_mb": round(m.memory_limit_bytes / 1024 / 1024, 1) if m.memory_limit_bytes else 0,
+                "disk_read_mb": round(m.disk_read_bytes / 1024 / 1024, 2) if m.disk_read_bytes else 0,
+                "disk_write_mb": round(m.disk_write_bytes / 1024 / 1024, 2) if m.disk_write_bytes else 0,
+                "net_rx_mb": round(m.net_rx_bytes / 1024 / 1024, 2) if m.net_rx_bytes else 0,
+                "net_tx_mb": round(m.net_tx_bytes / 1024 / 1024, 2) if m.net_tx_bytes else 0,
+                "uptime_s": round(m.uptime_ms / 1000, 1) if m.uptime_ms else 0,
+                "timestamp_ms": m.timestamp_ms,
+            })
+        return {"metrics": result}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/fleet-metrics", response_class=HTMLResponse)
+async def fleet_metrics_page(request: Request):
+    return HTMLResponse(_render("fleet_metrics.html", request=request))
+
+
 # ── Sandbox API ──────────────────────────────────────────────────────────────
 
 @app.get("/api/sandboxes", response_class=JSONResponse)
@@ -317,6 +351,15 @@ async def create_sandbox(
     idle_timeout: int = Form(0),
     max_duration: int = Form(0),
     volumes: str = Form(""),
+    patches_json: str = Form(""),
+    scripts_json: str = Form(""),
+    secrets_json: str = Form(""),
+    network_policy: str = Form(""),
+    init_json: str = Form(""),
+    pull_policy: str = Form(""),
+    log_level: str = Form(""),
+    registry_username: str = Form(""),
+    registry_password: str = Form(""),
 ):
     kwargs = dict(
         name=name,
@@ -338,6 +381,13 @@ async def create_sandbox(
         kwargs["shell"] = shell
     if user:
         kwargs["user"] = user
+    if log_level:
+        kwargs["log_level"] = log_level
+    if pull_policy:
+        kwargs["pull_policy"] = pull_policy
+    if registry_username and registry_password:
+        from microsandbox import RegistryAuth
+        kwargs["registry_auth"] = RegistryAuth(username=registry_username, password=registry_password)
     if env_json:
         try:
             kwargs["env"] = json.loads(env_json)
@@ -362,6 +412,66 @@ async def create_sandbox(
                 mounts[vol_ref] = Volume.named(vol_ref, mode="ensure-exists")
         if mounts:
             kwargs["volumes"] = mounts
+    if patches_json:
+        try:
+            patch_specs = json.loads(patches_json)
+            patches = []
+            for p in patch_specs:
+                kind = p.get("kind", "text")
+                path = p.get("path", "")
+                content = p.get("content", "")
+                mode = p.get("mode")
+                replace = p.get("replace", False)
+                if kind == "text":
+                    patches.append(Patch.text(path, content, mode=mode, replace=replace))
+                elif kind == "mkdir":
+                    patches.append(Patch.mkdir(path, mode=mode))
+                elif kind == "append":
+                    patches.append(Patch.append(path, content))
+                elif kind == "remove":
+                    patches.append(Patch.remove(path))
+            if patches:
+                kwargs["patches"] = patches
+        except json.JSONDecodeError:
+            pass
+    if scripts_json:
+        try:
+            kwargs["scripts"] = json.loads(scripts_json)
+        except json.JSONDecodeError:
+            pass
+    if secrets_json:
+        try:
+            secret_specs = json.loads(secrets_json)
+            secrets = []
+            for s in secret_specs:
+                secrets.append(
+                    Secret.env(
+                        s["env_var"],
+                        value=s["value"],
+                        allow_hosts=s.get("allow_hosts", []),
+                        allow_host_patterns=s.get("allow_host_patterns", []),
+                    )
+                )
+            if secrets:
+                kwargs["secrets"] = secrets
+        except (json.JSONDecodeError, KeyError):
+            pass
+    if init_json:
+        try:
+            init_spec = json.loads(init_json)
+            kwargs["init"] = InitConfig(
+                cmd=init_spec.get("cmd", ""),
+                args=tuple(init_spec.get("args", [])),
+                env=init_spec.get("env", {}),
+            )
+        except (json.JSONDecodeError, ValueError):
+            pass
+    if network_policy:
+        if network_policy == "none":
+            kwargs["network"] = Network.none()
+        elif network_policy == "allow_all":
+            kwargs["network"] = Network.allow_all()
+        # default is public_only which is the SDK default
 
     try:
         sb = await _with_timeout(
@@ -417,6 +527,101 @@ async def kill_sandbox(name: str):
 async def delete_sandbox(name: str):
     await _try_stop_and_remove(name)
     return await _table_refresh()
+
+
+@app.post("/sandboxes/{name}/drain")
+async def drain_sandbox(name: str):
+    try:
+        h = await asyncio.wait_for(Sandbox.get(name), timeout=10)
+        if h.status == "running":
+            sb = await asyncio.wait_for(h.connect(), timeout=10)
+            await asyncio.wait_for(sb.request_drain(), timeout=10)
+            return HTMLResponse(_render("exec_result.html", output="Drain requested — existing commands finish, new execs rejected", exit_code=0, command=f"drain {name}"))
+        return HTMLResponse(_render("exec_result.html", output="Sandbox is not running", exit_code=-1, command=f"drain {name}"))
+    except Exception as e:
+        return HTMLResponse(_render("exec_result.html", output=f"Error: {e}", exit_code=-1, command=f"drain {name}"))
+
+
+# ── SSH ──────────────────────────────────────────────────────────────────────
+
+@app.post("/api/sandboxes/{name}/ssh/exec")
+async def ssh_exec(name: str, command: str = Form(...)):
+    try:
+        h, sb = await _safe_connect(name)
+        ssh = await asyncio.wait_for(sb.ssh().open_client(), timeout=10)
+        output = await asyncio.wait_for(ssh.exec(command), timeout=30)
+        await ssh.close()
+        return {
+            "stdout": output.stdout_text,
+            "stderr": output.stderr_text,
+            "exit_code": output.status,
+            "success": output.success,
+        }
+    except asyncio.TimeoutError:
+        return JSONResponse({"error": "SSH exec timed out"}, status_code=504)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/sandboxes/{name}/ssh/sftp/read")
+async def ssh_sftp_read(name: str, path: str = Form(...)):
+    try:
+        h, sb = await _safe_connect(name)
+        ssh = await asyncio.wait_for(sb.ssh().open_client(), timeout=10)
+        sftp = await asyncio.wait_for(ssh.sftp(), timeout=10)
+        data = await asyncio.wait_for(sftp.read(path), timeout=10)
+        await sftp.close()
+        await ssh.close()
+        return {"content": data.decode("utf-8", errors="replace"), "path": path, "size": len(data)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/sandboxes/{name}/ssh/sftp/write")
+async def ssh_sftp_write(name: str, path: str = Form(...), content: str = Form(...)):
+    try:
+        h, sb = await _safe_connect(name)
+        ssh = await asyncio.wait_for(sb.ssh().open_client(), timeout=10)
+        sftp = await asyncio.wait_for(ssh.sftp(), timeout=10)
+        await asyncio.wait_for(sftp.write(path, content.encode()), timeout=10)
+        await sftp.close()
+        await ssh.close()
+        return {"status": "written", "path": path}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/sandboxes/{name}/ssh/sftp/mkdir")
+async def ssh_sftp_mkdir(name: str, path: str = Form(...)):
+    try:
+        h, sb = await _safe_connect(name)
+        ssh = await asyncio.wait_for(sb.ssh().open_client(), timeout=10)
+        sftp = await asyncio.wait_for(ssh.sftp(), timeout=10)
+        await asyncio.wait_for(sftp.mkdir(path), timeout=10)
+        await sftp.close()
+        await ssh.close()
+        return {"status": "created", "path": path}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/sandboxes/{name}/ssh/sftp/remove")
+async def ssh_sftp_remove(name: str, path: str = Form(...)):
+    try:
+        h, sb = await _safe_connect(name)
+        ssh = await asyncio.wait_for(sb.ssh().open_client(), timeout=10)
+        sftp = await asyncio.wait_for(ssh.sftp(), timeout=10)
+        await asyncio.wait_for(sftp.remove_file(path), timeout=10)
+        await sftp.close()
+        await ssh.close()
+        return {"status": "removed", "path": path}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/sandboxes/{name}/ssh-panel")
+async def ssh_panel(request: Request, name: str):
+    return HTMLResponse(_render("ssh_panel.html", name=name))
 
 
 # ── Exec ─────────────────────────────────────────────────────────────────────
@@ -571,12 +776,43 @@ async def list_snapshots():
 
 
 @app.post("/api/snapshots")
-async def create_snapshot(source: str = Form(...), name: str = Form("")):
+async def create_snapshot(source: str = Form(...), name: str = Form(""), labels_json: str = Form(""), record_integrity: bool = Form(False)):
     try:
         sb = await asyncio.wait_for(Sandbox.get(source), timeout=10)
         snap_name = name or f"{sb.name}-{int(datetime.now().timestamp())}"
-        snap = await asyncio.wait_for(Snapshot.create(sb.name, name=snap_name), timeout=SDK_TIMEOUT)
-        return {"digest": snap.digest, "name": snap_name, "path": snap.path, "size_bytes": snap.size_bytes}
+        kwargs = {"name": snap_name}
+        if record_integrity:
+            kwargs["record_integrity"] = True
+        if labels_json:
+            try:
+                kwargs["labels"] = json.loads(labels_json)
+            except json.JSONDecodeError:
+                pass
+        snap = await asyncio.wait_for(Snapshot.create(sb.name, **kwargs), timeout=SDK_TIMEOUT)
+        return {"digest": snap.digest, "name": snap_name, "path": snap.path, "size_bytes": snap.size_bytes, "labels": snap.labels}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/snapshots/import")
+async def import_snapshot(name: str = Form(...)):
+    try:
+        if not os.path.exists(name):
+            return JSONResponse({"error": f"file not found: {name}"}, status_code=400)
+        handle = await asyncio.wait_for(Snapshot.import_(name), timeout=SDK_TIMEOUT)
+        return {"digest": handle.digest, "name": handle.name, "path": handle.path}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/snapshots/reindex")
+async def reindex_snapshots(dir_path: str = Form("")):
+    try:
+        kwargs = {}
+        if dir_path:
+            kwargs["dir"] = dir_path
+        count = await asyncio.wait_for(Snapshot.reindex(**kwargs), timeout=30)
+        return {"status": "reindexed", "count": count}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 

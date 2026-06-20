@@ -5,6 +5,12 @@
       <button class="btn btn-outline btn-sm" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">✕</button>
     </div>
     <div class="modal-body">
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <input id="import-path" type="text" placeholder="Path to .tar.zst archive" style="flex:2;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;font-family:monospace;">
+        <button class="btn btn-success btn-sm" onclick="importSnapshot()">Import</button>
+        <button class="btn btn-outline btn-sm" onclick="reindexSnapshots()">Reindex</button>
+      </div>
+      <div id="snap-action-result" style="display:none;"></div>
       <table>
         <thead>
           <tr>
@@ -28,6 +34,7 @@
               <div class="actions">
                 <a class="btn btn-outline btn-sm" href="/api/snapshots/{{ s.digest }}/export" download>Export</a>
                 <button class="btn btn-success btn-sm" onclick="restoreSnapshot('{{ s.digest }}')">Restore</button>
+                <button class="btn btn-outline btn-sm" onclick="verifySnapshot('{{ s.digest }}')">Verify</button>
                 <button class="btn btn-danger btn-sm" hx-delete="/api/snapshots/{{ s.digest }}" hx-target="closest tr" hx-swap="delete" hx-confirm="Delete snapshot?">Delete</button>
               </div>
             </td>
@@ -55,5 +62,40 @@ async function restoreSnapshot(digest) {
     alert('Sandbox "' + data.name + '" created from snapshot with image ' + data.image);
     location.reload();
   } catch(e) { alert('Error: ' + e.message); }
+}
+async function verifySnapshot(digest) {
+  try {
+    const r = await fetch('/api/snapshots/' + encodeURIComponent(digest) + '/verify');
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    const upper = data.upper || {};
+    alert('Verify result: ' + upper.kind + (upper.digest ? '\nDigest: ' + upper.digest : ''));
+  } catch(e) { alert('Error: ' + e.message); }
+}
+async function importSnapshot() {
+  const path = document.getElementById('import-path').value.trim();
+  if (!path) return;
+  const el = document.getElementById('snap-action-result');
+  el.style.display = 'block';
+  el.innerHTML = '<div class="alert alert-info">Importing from ' + path + '...</div>';
+  try {
+    const r = await fetch('/api/snapshots/import', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'name=' + encodeURIComponent(path)});
+    const data = await r.json();
+    if (data.error) { el.innerHTML = '<div class="alert alert-danger">' + data.error + '</div>'; return; }
+    el.innerHTML = '<div class="alert alert-success">Imported: ' + (data.name || data.digest) + '</div>';
+    setTimeout(() => location.reload(), 1500);
+  } catch(e) { el.innerHTML = '<div class="alert alert-danger">' + e.message + '</div>'; }
+}
+async function reindexSnapshots() {
+  const el = document.getElementById('snap-action-result');
+  el.style.display = 'block';
+  el.innerHTML = '<div class="alert alert-info">Reindexing...</div>';
+  try {
+    const r = await fetch('/api/snapshots/reindex', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'dir_path='});
+    const data = await r.json();
+    if (data.error) { el.innerHTML = '<div class="alert alert-danger">' + data.error + '</div>'; return; }
+    el.innerHTML = '<div class="alert alert-success">Reindexed: ' + data.count + ' snapshots found</div>';
+    setTimeout(() => location.reload(), 1500);
+  } catch(e) { el.innerHTML = '<div class="alert alert-danger">' + e.message + '</div>'; }
 }
 </script>

@@ -1,0 +1,52 @@
+<div class="modal-overlay">
+  <div class="modal" style="max-width:900px;">
+    <div class="modal-header">
+      <h2>Fleet Metrics</h2>
+      <button class="btn btn-outline btn-sm" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="fleet-metrics-content" style="min-height:100px;">
+        <div style="text-align:center;padding:30px;color:#999;">Loading...</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline btn-sm" onclick="refreshFleetMetrics()">Refresh</button>
+      <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+async function refreshFleetMetrics() {
+  const el = document.getElementById('fleet-metrics-content');
+  el.innerHTML = '<div style="text-align:center;padding:30px;color:#999;">Loading...</div>';
+  try {
+    const r = await fetch('/api/metrics/fleet');
+    const data = await r.json();
+    if (data.error) { el.innerHTML = '<div class="alert alert-danger">' + data.error + '</div>'; return; }
+    if (!data.metrics || data.metrics.length === 0) {
+      el.innerHTML = '<div style="text-align:center;padding:30px;color:#999;">No running sandboxes.</div>';
+      return;
+    }
+    let html = '<table><thead><tr><th>Name</th><th>CPU%</th><th>Memory</th><th>Limit</th><th>Disk R/W</th><th>Net R/W</th><th>Uptime</th></tr></thead><tbody>';
+    for (const m of data.metrics) {
+      html += '<tr>';
+      html += '<td><code>' + m.name + '</code></td>';
+      html += '<td>' + m.cpu_percent.toFixed(1) + '%</td>';
+      html += '<td>' + m.memory_mb + ' MB</td>';
+      html += '<td>' + (m.memory_limit_mb || '?') + ' MB</td>';
+      html += '<td>' + m.disk_read_mb + '/' + m.disk_write_mb + ' MB</td>';
+      html += '<td>' + m.net_rx_mb + '/' + m.net_tx_mb + ' MB</td>';
+      html += '<td>' + Math.floor(m.uptime_s) + 's</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="alert alert-danger">' + e.message + '</div>';
+  }
+}
+document.addEventListener('DOMContentLoaded', function() {
+  setTimeout(refreshFleetMetrics, 100);
+});
+</script>

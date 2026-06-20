@@ -481,6 +481,85 @@ async def test_volume_detail():
     await MsbVolume.remove(vname)
 
 
+# ── Fleet Metrics tests ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_fleet_metrics():
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=10) as c:
+        r = await c.get("/api/metrics/fleet")
+        assert r.status_code == 200
+        d = r.json()
+        assert "metrics" in d
+        # At minimum there should be some metric entries or an empty list
+        assert isinstance(d["metrics"], list)
+
+
+# ── SSH tests ────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_ssh_exec():
+    name = "pytest-ssh-sb"
+    await cleanup(name)
+    sb = await Sandbox.create(name, image="alpine", detached=True, idle_timeout=300)
+    await sb.detach()
+    await wait_for_status(name, "running")
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=15) as c:
+        r = await c.post(f"/api/sandboxes/{name}/ssh/exec", data={"command": "echo hello_ssh"})
+        assert r.status_code == 200
+        d = r.json()
+        assert "hello_ssh" in d.get("stdout", "")
+        assert d.get("exit_code") == 0
+    h = await Sandbox.get(name)
+    await h.kill()
+    await Sandbox.remove(name)
+
+
+@pytest.mark.asyncio
+async def test_ssh_sftp():
+    name = "pytest-sftp-sb"
+    await cleanup(name)
+    sb = await Sandbox.create(name, image="alpine", detached=True, idle_timeout=300)
+    await sb.detach()
+    await wait_for_status(name, "running")
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=15) as c:
+        r = await c.post(f"/api/sandboxes/{name}/ssh/sftp/write", data={"path": "/tmp/sftp_test.txt", "content": "sftp hello"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "written"
+
+        r = await c.post(f"/api/sandboxes/{name}/ssh/sftp/read", data={"path": "/tmp/sftp_test.txt"})
+        assert r.status_code == 200
+        assert "sftp hello" in r.json()["content"]
+
+        r = await c.post(f"/api/sandboxes/{name}/ssh/sftp/mkdir", data={"path": "/tmp/sftp_dir"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "created"
+
+        r = await c.post(f"/api/sandboxes/{name}/ssh/sftp/remove", data={"path": "/tmp/sftp_test.txt"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "removed"
+    h = await Sandbox.get(name)
+    await h.kill()
+    await Sandbox.remove(name)
+
+
+# ── Drain test ───────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_drain():
+    name = "pytest-drain-sb"
+    await cleanup(name)
+    sb = await Sandbox.create(name, image="alpine", detached=True, idle_timeout=300)
+    await sb.detach()
+    await wait_for_status(name, "running")
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=15) as c:
+        r = await c.post(f"/sandboxes/{name}/drain")
+        assert r.status_code == 200
+        assert "Drain" in r.text
+    h = await Sandbox.get(name)
+    await h.kill()
+    await Sandbox.remove(name)
+
+
 # ── Snapshot tests ───────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -511,6 +590,76 @@ async def test_snapshot_crud():
     await Sandbox.remove(sb_name)
 
 
+# ── Snapshot Import test ─────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_snapshot_import():
+    sb_name = "pytest-import-sb"
+    await cleanup(sb_name)
+    sb = await Sandbox.create(sb_name, image="alpine", detached=True, idle_timeout=300)
+    await sb.detach()
+    await wait_for_status(sb_name, "running")
+    h = await Sandbox.get(sb_name)
+    await h.stop(timeout=10)
+    await wait_for_status(sb_name, "stopped", deadline_s=15)
+
+    snap_name = f"test-import-{int(datetime.now().timestamp())}"
+    snap = await Snapshot.create(sb_name, name=snap_name)
+    import tempfile, os
+    archive_path = f"/tmp/snap-import-test-{int(datetime.now().timestamp())}.tar.zst"
+    await Snapshot.export(snap_name, archive_path)
+    await Snapshot.remove(snap_name)
+
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=60) as c:
+        r = await c.post("/api/snapshots/import", data={"name": archive_path})
+        assert r.status_code == 200, f"body={r.text}"
+        assert "digest" in r.json()
+
+    imported_digest = r.json()["digest"]
+    await Snapshot.remove(imported_digest)
+    try:
+        os.remove(archive_path)
+    except Exception:
+        pass
+    await Sandbox.remove(sb_name)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_reindex():
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as c:
+        r = await c.post("/api/snapshots/reindex", data={"dir_path": ""})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["status"] == "reindexed"
+        assert isinstance(d["count"], int)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_with_labels():
+    sb_name = "pytest-labels-sb"
+    await cleanup(sb_name)
+    sb = await Sandbox.create(sb_name, image="alpine", detached=True, idle_timeout=300)
+    await sb.detach()
+    await wait_for_status(sb_name, "running")
+    h = await Sandbox.get(sb_name)
+    await h.stop(timeout=10)
+    await wait_for_status(sb_name, "stopped", deadline_s=15)
+
+    snap_name = f"test-labels-{int(datetime.now().timestamp())}"
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as c:
+        r = await c.post("/api/snapshots", data={
+            "source": sb_name,
+            "name": snap_name,
+            "labels_json": '{"stage":"test","author":"pytest"}',
+            "record_integrity": True,
+        })
+        assert r.status_code == 200, f"body={r.text}"
+        assert r.json()["name"] == snap_name
+
+    await Snapshot.remove(snap_name)
+    await Sandbox.remove(sb_name)
+
+
 # ── Image Pull test ─────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -524,6 +673,74 @@ async def test_image_pull():
         r = await c.get("/api/images")
         refs = [i["reference"] for i in r.json()]
         assert "busybox" in refs
+
+
+# ── Advanced Create tests ────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_create_with_patches():
+    name = "pytest-patch-sb"
+    await cleanup(name)
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=15) as c:
+        r = await c.post("/sandboxes/create", data={
+            "name": name, "image": "alpine", "cpus": 1, "memory": 256,
+            "patches_json": '[{"kind":"text","path":"/etc/patch_test.txt","content":"patched!"}]',
+        })
+        assert r.status_code == 200
+        await wait_for_status(name, "running")
+        h = await Sandbox.get(name)
+        s = await h.connect()
+        out = await s.exec("cat", ["/etc/patch_test.txt"])
+        assert "patched!" in out.stdout_text
+    await cleanup(name)
+
+
+@pytest.mark.asyncio
+async def test_create_with_scripts():
+    name = "pytest-scr-sb"
+    await cleanup(name)
+    script_json = '{"greet":"#!/bin/sh\\necho hello_script"}'
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=15) as c:
+        r = await c.post("/sandboxes/create", data={
+            "name": name, "image": "alpine", "cpus": 1, "memory": 256,
+            "scripts_json": script_json,
+        })
+        assert r.status_code == 200
+        await wait_for_status(name, "running")
+        h = await Sandbox.get(name)
+        s = await h.connect()
+        out = await s.exec("sh", ["-c", "greet"])
+        assert "hello_script" in out.stdout_text
+    await cleanup(name)
+
+
+@pytest.mark.asyncio
+async def test_create_with_network_none():
+    name = "pytest-net-sb"
+    await cleanup(name)
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=15) as c:
+        r = await c.post("/sandboxes/create", data={
+            "name": name, "image": "alpine", "cpus": 1, "memory": 256,
+            "network_policy": "none",
+        })
+        assert r.status_code == 200
+        await wait_for_status(name, "running")
+    await cleanup(name)
+
+
+@pytest.mark.asyncio
+async def test_create_with_pull_log_level():
+    name = "pytest-ll-sb"
+    await cleanup(name)
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=15) as c:
+        r = await c.post("/sandboxes/create", data={
+            "name": name, "image": "alpine", "cpus": 1, "memory": 256,
+            "pull_policy": "if-missing",
+            "log_level": "debug",
+        })
+        assert r.status_code == 200
+        await wait_for_status(name, "running")
+    await cleanup(name)
 
 
 # ── Snapshot Export test ─────────────────────────────────────────────────────

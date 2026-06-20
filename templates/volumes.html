@@ -1,0 +1,126 @@
+<div class="modal-overlay">
+  <div class="modal" style="max-width:800px;">
+    <div class="modal-header">
+      <h2>Volumes</h2>
+      <button class="btn btn-outline btn-sm" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">✕</button>
+    </div>
+    <div class="modal-body">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Kind</th>
+            <th>Usage</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in volumes %}
+          <tr>
+            <td><strong>{{ v.name }}</strong></td>
+            <td>{{ v.kind }}</td>
+            <td>
+              {% if v.capacity_bytes and v.capacity_bytes > 0 %}
+                {{ '{:,}'.format(v.used_bytes or 0) }} / {{ '{:,}'.format(v.capacity_bytes) }} B
+              {% else %}
+                {{ '{:,}'.format(v.used_bytes or 0) }} B
+              {% endif %}
+            </td>
+            <td>
+              <div class="actions">
+                <button class="btn btn-outline btn-sm" onclick="browseVolume('{{ v.name }}')">Browse</button>
+                <button class="btn btn-danger btn-sm" hx-delete="/api/volumes/{{ v.name }}" hx-target="closest tr" hx-swap="delete" hx-confirm="Delete volume {{ v.name }}?">Delete</button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not volumes %}
+          <tr><td colspan="4" style="text-align:center;padding:30px;color:#999;">No volumes yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+      <div id="vol-browser" style="display:none;margin-top:16px;border:1px solid #e5e7eb;border-radius:6px;">
+        <div style="padding:8px 12px;background:#f9fafb;border-bottom:1px solid #e5e7eb;display:flex;gap:6px;align-items:center;">
+          <span style="font-size:12px;font-weight:600;">Volume:</span>
+          <span id="vol-browser-name" style="font-size:12px;"></span>
+          <span style="font-size:12px;font-weight:600;margin-left:12px;">Path:</span>
+          <input id="vol-browser-path" type="text" value="/" style="flex:1;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;font-family:monospace;">
+          <button class="btn btn-outline btn-sm" onclick="volList()">Browse</button>
+        </div>
+        <div id="vol-browser-content" style="padding:12px;min-height:100px;max-height:300px;overflow-y:auto;">
+          <div style="color:#999;">Click Browse to list files</div>
+        </div>
+        <div style="padding:8px 12px;border-top:1px solid #e5e7eb;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <span style="font-size:11px;font-weight:600;">New File:</span>
+          <input id="vol-new-path" type="text" placeholder="path" value="/newfile.txt" style="flex:1;min-width:120px;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;font-family:monospace;">
+          <input id="vol-new-content" type="text" placeholder="content" style="flex:2;min-width:150px;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
+          <button class="btn btn-primary btn-sm" onclick="volWrite()">Write</button>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('vol-upload-input').click()">Upload</button>
+          <input id="vol-upload-input" type="file" style="display:none" onchange="volUpload(event)">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentVol = '';
+function browseVolume(name) {
+  currentVol = name;
+  document.getElementById('vol-browser-name').textContent = name;
+  document.getElementById('vol-browser').style.display = 'block';
+  document.getElementById('vol-browser-path').value = '/';
+  volList();
+}
+async function volList() {
+  const c = document.getElementById('vol-browser-content');
+  const path = document.getElementById('vol-browser-path').value || '/';
+  c.innerHTML = '<div style="color:#999;">Loading...</div>';
+  try {
+    const r = await fetch(`/api/volumes/${currentVol}/fs/list?path=${encodeURIComponent(path)}`);
+    const data = await r.json();
+    if (data.error) { c.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+    let html = '<table style="font-size:12px;"><thead><tr><th>Name</th><th>Kind</th><th>Size</th></tr></thead><tbody>';
+    for (const e of data) {
+      const icon = e.kind === 'directory' ? '📁' : '📄';
+      const sizeStr = e.kind === 'directory' ? '-' : (e.size != null ? e.size + ' B' : '-');
+      const nameLink = e.kind === 'directory'
+        ? `<a href="#" onclick="document.getElementById('vol-browser-path').value='${e.path}';volList();return false" style="text-decoration:none;">${icon} ${e.name}</a>`
+        : `<span>${icon} ${e.name}</span>`;
+      html += `<tr><td>${nameLink}</td><td>${e.kind}</td><td>${sizeStr}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    if (data.length === 0) html = '<div style="color:#999;">Empty directory</div>';
+    c.innerHTML = html;
+  } catch(e) {
+    c.innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
+  }
+}
+async function volWrite() {
+  const path = document.getElementById('vol-new-path').value;
+  const content = document.getElementById('vol-new-content').value;
+  try {
+    const r = await fetch(`/api/volumes/${currentVol}/fs/write`, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'path='+encodeURIComponent(path)+'&content='+encodeURIComponent(content)});
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    volList();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+async function volUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const path = document.getElementById('vol-browser-path').value + '/' + file.name;
+  const formData = new FormData();
+  formData.append('path', path);
+  formData.append('file', file);
+  try {
+    const r = await fetch(`/api/volumes/${currentVol}/fs/upload`, {method:'POST', body: formData});
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    volList();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+</script>

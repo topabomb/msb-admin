@@ -1,0 +1,4 @@
+microsandbox
+fastapi
+uvicorn[standard]
+jinja2

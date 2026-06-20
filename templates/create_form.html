@@ -1,0 +1,88 @@
+<div class="modal-overlay">
+  <div class="modal" style="max-width: 640px;">
+    <div class="modal-header">
+      <h2>Create Sandbox</h2>
+      <button class="btn btn-outline btn-sm" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">✕</button>
+    </div>
+    <form hx-post="/sandboxes/create" hx-target="#sandbox-list" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful){setTimeout(()=>{document.querySelector('.modal-overlay')?.remove();document.body.style.overflow=''},500)}">
+      <div class="modal-body" style="max-height:65vh;overflow-y:auto;">
+        <div class="form-group">
+          <label>Name *</label>
+          <input type="text" name="name" required placeholder="my-sandbox">
+        </div>
+        <div class="form-group">
+          <label>Image *</label>
+          <input type="text" name="image" required value="alpine" placeholder="alpine, python:3.12, ubuntu">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>CPUs</label>
+            <input type="number" name="cpus" value="1" min="1" max="64">
+          </div>
+          <div class="form-group">
+            <label>Memory (MiB)</label>
+            <input type="number" name="memory" value="512" min="128" max="65536">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Idle Timeout (s)</label>
+            <input type="number" name="idle_timeout" value="300" min="0" placeholder="300">
+          </div>
+          <div class="form-group">
+            <label>Max Duration (s)</label>
+            <input type="number" name="max_duration" value="0" min="0" placeholder="0 = unlimited">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Workdir</label>
+            <input type="text" name="workdir" placeholder="/ (root)">
+          </div>
+          <div class="form-group">
+            <label>Shell</label>
+            <input type="text" name="shell" placeholder="/bin/sh">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>User</label>
+            <input type="text" name="user" placeholder="root">
+          </div>
+          <div class="form-group">
+            <label>Hostname</label>
+            <input type="text" name="hostname" placeholder="(auto)">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Ports (host:guest, comma-separated)</label>
+          <input type="text" name="ports" placeholder="8080:80, 443:443">
+        </div>
+        <div class="form-group">
+          <label>Security</label>
+          <select name="security">
+            <option value="default">default</option>
+            <option value="restricted">restricted</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Environment Variables (JSON)</label>
+          <input type="text" name="env_json" placeholder='{"KEY": "value", "FOO": "bar"}'>
+        </div>
+        <div class="form-group">
+          <label>Volume Mounts (comma-separated volume names)</label>
+          <input type="text" name="volumes" placeholder="my-vol, data-vol">
+          {% if volumes %}
+          <div style="font-size:11px;color:#666;margin-top:4px;">Available volumes:
+          {% for v in volumes %}<code style="font-size:10px;">{{ v.name }}</code> {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create</button>
+      </div>
+    </form>
+  </div>
+</div>

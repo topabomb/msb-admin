@@ -1,0 +1,39 @@
+<div class="card">
+  <div class="card-header"><h2>Web Terminal</h2></div>
+  <div class="card-body">
+    <div id="terminal-container"></div>
+    <div style="margin-top:6px;font-size:11px;color:#666;">Type commands. Press Ctrl+] to detach if needed.</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5"></script>
+<script>
+  (function() {
+    const name = "{{ name }}";
+    const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "'JetBrains Mono','Fira Code',monospace" });
+    term.open(document.getElementById('terminal-container'));
+    term.focus();
+    term.write('Connecting to ' + name + '...\r\n');
+
+    let ws = new WebSocket('ws://' + window.location.host + '/ws/terminal/' + name);
+    ws.onopen = function() { term.clear(); };
+    ws.onmessage = function(e) {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'output') term.write(msg.data);
+        else if (msg.type === 'exit') {
+          term.write('\r\n\x1b[33m[process exited with code ' + msg.code + ']\x1b[0m\r\n');
+        }
+      } catch(e) { term.write(e.data); }
+    };
+    ws.onclose = function() { term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n'); };
+
+    term.onData(function(data) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data: data }));
+      }
+    });
+
+    window.addEventListener('beforeunload', function() { ws.close(); });
+  })();
+</script>

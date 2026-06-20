@@ -1,0 +1,40 @@
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Image</th>
+      <th>Status</th>
+      <th>CPU</th>
+      <th>Memory</th>
+      <th>Created</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for sb in sandboxes %}
+    <tr>
+      <td><strong>{{ sb.name }}</strong></td>
+      <td><code>{{ sb.image }}</code></td>
+      <td><span class="status {{ sb.status }}">{{ sb.status }}</span></td>
+      <td>{{ sb.cpus }} vCPU</td>
+      <td>{{ sb.memory_mib }} MiB</td>
+      <td>{{ sb.created_at }}</td>
+      <td>
+        <div class="actions">
+          <a class="btn btn-outline btn-sm" href="/sandboxes/{{ sb.name }}" hx-get="/sandboxes/{{ sb.name }}" hx-target="#modal-area" hx-swap="innerHTML">Detail</a>
+          {% if sb.status == "running" %}
+          <button class="btn btn-warning btn-sm" hx-post="/sandboxes/{{ sb.name }}/stop" hx-target="#sandbox-list" hx-swap="innerHTML" hx-trigger="click">Stop</button>
+          {% elif sb.status == "stopped" %}
+          <button class="btn btn-success btn-sm" hx-post="/sandboxes/{{ sb.name }}/start" hx-target="#sandbox-list" hx-swap="innerHTML" hx-trigger="click">Start</button>
+          {% endif %}
+          <button class="btn btn-danger btn-sm" hx-post="/sandboxes/{{ sb.name }}/kill" hx-target="#sandbox-list" hx-swap="innerHTML" hx-confirm="Kill {{ sb.name }}?" hx-trigger="click">Kill</button>
+          <button class="btn btn-danger btn-sm" hx-post="/sandboxes/{{ sb.name }}/delete" hx-target="#toast-area" hx-swap="innerHTML" hx-confirm="Remove {{ sb.name }}? This cannot be undone." hx-trigger="click">Delete</button>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+    {% if not sandboxes %}
+    <tr><td colspan="7" style="text-align:center;padding:30px;color:#999;">No sandboxes yet. Create one to get started.</td></tr>
+    {% endif %}
+  </tbody>
+</table>

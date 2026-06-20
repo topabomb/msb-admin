@@ -1,0 +1,35 @@
+<div class="card">
+  <div class="card-header"><h2>Live Metrics</h2></div>
+  <div class="card-body">
+    <div class="meta-grid" id="metrics-display">
+      <div class="meta-item"><div class="label">CPU</div><div class="value" id="m-cpu">--</div></div>
+      <div class="meta-item"><div class="label">Memory</div><div class="value" id="m-mem">--</div></div>
+      <div class="meta-item"><div class="label">Network RX</div><div class="value" id="m-rx">--</div></div>
+      <div class="meta-item"><div class="label">Network TX</div><div class="value" id="m-tx">--</div></div>
+      <div class="meta-item"><div class="label">Disk Read</div><div class="value" id="m-disk-r">--</div></div>
+      <div class="meta-item"><div class="label">Disk Write</div><div class="value" id="m-disk-w">--</div></div>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:#666;" id="m-ts"></div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    const name = "{{ name }}";
+    let ws = new WebSocket('ws://' + window.location.host + '/ws/metrics/' + name);
+    ws.onmessage = function(e) {
+      try {
+        const d = JSON.parse(e.data);
+        document.getElementById('m-cpu').textContent = (d.cpu !== null && d.cpu !== undefined) ? d.cpu.toFixed(1) + '%' : '--';
+        document.getElementById('m-mem').textContent = d.memory_mb + ' / ' + d.memory_limit_mb + ' MiB';
+        document.getElementById('m-rx').textContent = (d.rx_bytes || 0).toLocaleString() + ' B';
+        document.getElementById('m-tx').textContent = (d.tx_bytes || 0).toLocaleString() + ' B';
+        document.getElementById('m-disk-r').textContent = d.disk_read_mb + ' MiB';
+        document.getElementById('m-disk-w').textContent = d.disk_write_mb + ' MiB';
+        document.getElementById('m-ts').textContent = 'Last updated: ' + new Date(d.timestamp_ms).toLocaleTimeString();
+      } catch(e) {}
+    };
+    ws.onclose = function() { document.getElementById('m-ts').textContent = '[disconnected]'; };
+    window.addEventListener('beforeunload', function() { ws.close(); });
+  })();
+</script>

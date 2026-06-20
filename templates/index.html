@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>msb-admin</title>
+  <script src="https://unpkg.com/htmx.org@2"></script>
+  <script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.css" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #f0f2f5; color: #1a1a2e; font-size: 14px; line-height: 1.5;
+    }
+    .header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 16px;
+    }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header h1 span { color: #4fc3f7; }
+    .header .badge { margin-left: auto; font-size: 12px; opacity: 0.7; }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+
+    .stats { display: flex; gap: 16px; margin-bottom: 20px; }
+    .stat-card {
+      flex: 1; background: #fff; border-radius: 8px; padding: 16px 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .stat-card .num { font-size: 28px; font-weight: 700; }
+    .stat-card .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; }
+    .stat-card.green .num { color: #22c55e; }
+    .stat-card.yellow .num { color: #eab308; }
+    .stat-card.blue .num { color: #3b82f6; }
+
+    .card {
+      background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      margin-bottom: 20px;
+    }
+    .card-header {
+      padding: 12px 20px; border-bottom: 1px solid #e5e7eb;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .card-header h2 { font-size: 15px; font-weight: 600; }
+    .card-body { padding: 16px 20px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+    th { font-weight: 600; color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    tr:hover { background: #f8fafc; }
+
+    .status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; }
+    .status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    .status.running::before { background: #22c55e; }
+    .status.stopped::before { background: #9ca3af; }
+    .status.crashed::before { background: #ef4444; }
+    .status.created::before { background: #3b82f6; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px;
+      border-radius: 6px; border: 1px solid transparent; font-size: 12px; font-weight: 500;
+      cursor: pointer; text-decoration: none; transition: all 0.15s;
+    }
+    .btn-sm { padding: 4px 10px; font-size: 11px; }
+    .btn-primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-success { background: #22c55e; color: #fff; border-color: #22c55e; }
+    .btn-success:hover { background: #16a34a; }
+    .btn-danger { background: #ef4444; color: #fff; border-color: #ef4444; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-warning { background: #eab308; color: #fff; border-color: #eab308; }
+    .btn-warning:hover { background: #ca8a04; }
+    .btn-outline { background: transparent; color: #666; border-color: #d1d5db; }
+    .btn-outline:hover { background: #f3f4f6; }
+
+    .actions { display: flex; gap: 4px; flex-wrap: wrap; }
+
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 4px; }
+    .form-group input, .form-group select {
+      width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+      font-size: 13px; outline: none; transition: border-color 0.15s;
+    }
+    .form-group input:focus, .form-group select:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .form-row { display: flex; gap: 12px; }
+    .form-row .form-group { flex: 1; }
+
+    .alert { padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+    .alert-success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .alert-info { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+    .alert-warning { background: #fef9c3; color: #854d0e; border: 1px solid #fef08a; }
+    .alert-danger { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center; z-index: 1000;
+    }
+    .modal {
+      background: #fff; border-radius: 10px; width: 90%; max-width: 640px;
+      max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+    .modal-header { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h2 { font-size: 16px; }
+    .modal-body { padding: 20px; }
+    .modal-footer { padding: 12px 20px; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; justify-content: flex-end; }
+
+    pre.output {
+      background: #1a1a2e; color: #e0e0e0; padding: 12px; border-radius: 6px;
+      font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 12px;
+      overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .loading { opacity: 0.5; pointer-events: none; }
+
+    #terminal-container { width: 100%; height: 500px; }
+
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    .meta-item { }
+    .meta-item .label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.3px; }
+    .meta-item .value { font-size: 14px; font-weight: 500; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>msb<span>admin</span></h1>
+  <div style="display:flex;gap:8px;margin-left:24px;">
+    <a href="/" style="color:#4fc3f7;text-decoration:none;font-size:13px;">Sandboxes</a>
+    <a href="/volumes" hx-get="/volumes" hx-target="#modal-area" hx-swap="innerHTML" style="color:#fff;text-decoration:none;font-size:13px;opacity:0.7;hover:opacity:1;">Volumes</a>
+    <a href="/images" hx-get="/images" hx-target="#modal-area" hx-swap="innerHTML" style="color:#fff;text-decoration:none;font-size:13px;opacity:0.7;hover:opacity:1;">Images</a>
+    <a href="/snapshots" hx-get="/snapshots" hx-target="#modal-area" hx-swap="innerHTML" style="color:#fff;text-decoration:none;font-size:13px;opacity:0.7;hover:opacity:1;">Snapshots</a>
+  </div>
+  <span class="badge">microsandbox v0.5.7</span>
+</div>
+
+<div class="container">
+
+  <div class="stats" id="stats">
+    <div class="stat-card blue"><div class="num">{{ total }}</div><div class="label">Total Sandboxes</div></div>
+    <div class="stat-card green"><div class="num">{{ running }}</div><div class="label">Running</div></div>
+    <div class="stat-card yellow"><div class="num">{{ stopped }}</div><div class="label">Stopped</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Sandboxes</h2>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="search-input" type="text" placeholder="Search name or image…" value="{{ search }}" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;width:220px;" onkeyup="debounceSearch()">
+        <button class="btn btn-primary" hx-get="/create-form" hx-target="#modal-area" hx-swap="innerHTML">+ New Sandbox</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div id="sandbox-list">
+        {% include "sandbox_table.html" %}
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-area"></div>
+  <div id="toast-area" style="position:fixed;bottom:20px;right:20px;z-index:2000;"></div>
+</div>
+
+<script>
+  document.body.addEventListener('htmx:beforeSwap', function(evt) {
+    if (evt.detail.target.id === 'modal-area' && evt.detail.serverResponse.includes('modal-overlay')) {
+      document.body.style.overflow = 'hidden';
+    }
+  });
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'toast-area') {
+      setTimeout(() => { document.getElementById('toast-area').innerHTML = ''; }, 4000);
+    }
+  });
+  document.body.addEventListener('htmx:afterRequest', function(evt) {
+    const trigger = evt.detail.xhr.getResponseHeader('HX-Trigger');
+    if (trigger && trigger.includes('toast')) {
+      const toastEl = document.createElement('div');
+      toastEl.className = 'alert alert-success';
+      toastEl.textContent = 'Operation completed';
+      document.getElementById('toast-area').appendChild(toastEl);
+      setTimeout(() => toastEl.remove(), 3000);
+    }
+  });
+  document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('modal-overlay')) {
+      e.target.remove();
+      document.body.style.overflow = '';
+    }
+  });
+  let searchTimer;
+  function debounceSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      const q = document.getElementById('search-input').value;
+      htmx.ajax('GET', '/sandboxes/table?search=' + encodeURIComponent(q), {target:'#sandbox-list', swap:'innerHTML'});
+    }, 300);
+  }
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      const overlay = document.querySelector('.modal-overlay');
+      if (overlay) { overlay.remove(); document.body.style.overflow = ''; }
+    }
+  });
+</script>
+</body>
+</html>

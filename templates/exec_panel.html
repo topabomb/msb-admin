@@ -1,0 +1,13 @@
+<div class="card">
+  <div class="card-header"><h2>Execute Command</h2></div>
+  <div class="card-body">
+    <form hx-post="/sandboxes/{{ name }}/exec" hx-target="#exec-output" hx-swap="innerHTML">
+      <div class="form-group">
+        <label>Command</label>
+        <input type="text" name="command" placeholder="ls -la /" value="uname -a" style="font-family:monospace;">
+      </div>
+      <button type="submit" class="btn btn-primary">Run</button>
+    </form>
+    <div id="exec-output" style="margin-top:12px;"></div>
+  </div>
+</div>

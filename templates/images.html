@@ -1,0 +1,112 @@
+<div class="modal-overlay">
+  <div class="modal" style="max-width:800px;">
+    <div class="modal-header">
+      <h2>Images</h2>
+      <button class="btn btn-outline btn-sm" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:12px;display:flex;gap:8px;">
+        <input id="pull-ref" type="text" placeholder="Image reference (e.g. ubuntu:24.04)" style="flex:1;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:monospace;">
+        <button class="btn btn-primary" onclick="pullImage()">Pull</button>
+      </div>
+      <div id="pull-result" style="display:none;margin-bottom:12px;"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Reference</th>
+            <th>Arch</th>
+            <th>OS</th>
+            <th>Layers</th>
+            <th>Size</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="images-tbody">
+          {% for img in images %}
+          <tr>
+            <td><strong>{{ img.reference }}</strong></td>
+            <td>{{ img.architecture }}</td>
+            <td>{{ img.os }}</td>
+            <td>{{ img.layer_count }}</td>
+            <td>{{ '{:,}'.format(img.size_bytes) }} B</td>
+            <td>
+              <div class="actions">
+                <button class="btn btn-outline btn-sm" onclick="inspectImage('{{ img.reference }}')">Inspect</button>
+                <button class="btn btn-danger btn-sm" hx-delete="/api/images/{{ img.reference }}" hx-target="closest tr" hx-swap="delete" hx-confirm="Remove image {{ img.reference }}?">Remove</button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not images %}
+          <tr><td colspan="6" style="text-align:center;padding:30px;color:#999;">No images cached.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+      <div id="image-detail" style="display:none;margin-top:16px;border:1px solid #e5e7eb;border-radius:6px;">
+        <div style="padding:8px 12px;background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+          <span id="image-detail-ref" style="font-size:13px;font-weight:600;"></span>
+        </div>
+        <div id="image-detail-body" style="padding:12px;font-size:12px;"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+async function pullImage() {
+  const ref = document.getElementById('pull-ref').value.trim();
+  if (!ref) return;
+  const result = document.getElementById('pull-result');
+  result.style.display = 'block';
+  result.innerHTML = '<div class="alert alert-info">Pulling ' + ref + '...</div>';
+  try {
+    const r = await fetch('/api/images/pull', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'reference=' + encodeURIComponent(ref)});
+    const data = await r.json();
+    if (data.error) {
+      result.innerHTML = '<div class="alert alert-danger">' + data.error + '</div>';
+    } else {
+      result.innerHTML = '<div class="alert alert-success">Pulled: ' + data.reference + '</div>';
+      setTimeout(() => location.reload(), 1500);
+    }
+  } catch(e) {
+    result.innerHTML = '<div class="alert alert-danger">' + e.message + '</div>';
+  }
+}
+async function inspectImage(ref) {
+  const d = document.getElementById('image-detail');
+  const body = document.getElementById('image-detail-body');
+  document.getElementById('image-detail-ref').textContent = ref;
+  d.style.display = 'block';
+  body.innerHTML = '<div style="color:#999;">Loading...</div>';
+  try {
+    const r = await fetch(`/api/images/${encodeURIComponent(ref)}`);
+    const data = await r.json();
+    let html = '<div class="meta-grid">';
+    html += `<div class="meta-item"><div class="label">Reference</div><div class="value"><code>${data.reference}</code></div></div>`;
+    html += `<div class="meta-item"><div class="label">Architecture</div><div class="value">${data.architecture}</div></div>`;
+    html += `<div class="meta-item"><div class="label">OS</div><div class="value">${data.os}</div></div>`;
+    html += `<div class="meta-item"><div class="label">Layers</div><div class="value">${data.layer_count}</div></div>`;
+    html += `<div class="meta-item"><div class="label">Size</div><div class="value">${data.size_bytes.toLocaleString()} B</div></div>`;
+    html += `</div>`;
+    if (data.config) {
+      html += '<h4 style="margin:12px 0 8px;font-size:13px;">Image Config</h4><div class="meta-grid">';
+      if (data.config.cmd && data.config.cmd.length) html += `<div class="meta-item"><div class="label">CMD</div><div class="value"><code>${data.config.cmd.join(' ')}</code></div></div>`;
+      if (data.config.entrypoint && data.config.entrypoint.length) html += `<div class="meta-item"><div class="label">ENTRYPOINT</div><div class="value"><code>${data.config.entrypoint.join(' ')}</code></div></div>`;
+      if (data.config.working_dir) html += `<div class="meta-item"><div class="label">WORKDIR</div><div class="value">${data.config.working_dir}</div></div>`;
+      if (data.config.user) html += `<div class="meta-item"><div class="label">USER</div><div class="value">${data.config.user}</div></div>`;
+      if (data.config.env && data.config.env.length) {
+        html += `<div class="meta-item" style="grid-column:1/-1;"><div class="label">ENV</div><div class="value"><pre style="font-size:11px;margin:0;">`;
+        for (const e of data.config.env) html += `${e}\n`;
+        html += '</pre></div></div>';
+      }
+      html += '</div>';
+    }
+    body.innerHTML = html;
+  } catch(e) {
+    body.innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
+  }
+}
+</script>

@@ -1,0 +1,119 @@
+<div style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
+  <div style="padding:8px 12px;background:#f9fafb;border-bottom:1px solid #e5e7eb;display:flex;gap:6px;align-items:center;">
+    <span style="font-size:12px;font-weight:600;">Path:</span>
+    <input id="fs-path" type="text" value="/" style="flex:1;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;font-family:monospace;">
+    <button class="btn btn-outline btn-sm" onclick="fsList()">Browse</button>
+    <button class="btn btn-success btn-sm" onclick="fsNewFile()">+ File</button>
+    <button class="btn btn-success btn-sm" onclick="fsNewDir()">+ Dir</button>
+  </div>
+  <div id="fs-content" style="padding:0;min-height:200px;max-height:400px;overflow-y:auto;">
+    <div style="padding:20px;text-align:center;color:#999;">Enter a path and click Browse</div>
+  </div>
+  <div id="fs-editor" style="display:none;border-top:1px solid #e5e7eb;">
+    <div style="padding:8px 12px;background:#f9fafb;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+      <span id="fs-editor-path" style="font-size:12px;font-weight:600;"></span>
+      <div style="display:flex;gap:4px;">
+        <button class="btn btn-primary btn-sm" onclick="fsSave()">Save</button>
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('fs-editor').style.display='none'">Close</button>
+      </div>
+    </div>
+    <textarea id="fs-editor-content" style="width:100%;min-height:200px;padding:12px;font-family:monospace;font-size:12px;border:none;resize:vertical;outline:none;"></textarea>
+  </div>
+</div>
+
+<script>
+async function fsList() {
+  const c = document.getElementById('fs-content');
+  const path = document.getElementById('fs-path').value || '/';
+  c.innerHTML = '<div style="padding:20px;text-align:center;color:#999;">Loading...</div>';
+  try {
+    const r = await fetch(`/api/sandboxes/{{ name }}/fs/list?path=${encodeURIComponent(path)}`);
+    const data = await r.json();
+    if (data.error) { c.innerHTML = `<div class="alert alert-danger">${data.error}</div>`; return; }
+    let html = '<table><thead><tr><th>Name</th><th>Kind</th><th>Size</th><th>Actions</th></tr></thead><tbody>';
+    for (const e of data) {
+      const icon = e.kind === 'directory' ? '📁' : '📄';
+      const sizeStr = e.kind === 'directory' ? '-' : (e.size != null ? e.size + ' B' : '-');
+      const nameLink = e.kind === 'directory'
+        ? `<a href="#" onclick="document.getElementById('fs-path').value='${e.path}';fsList();return false" style="text-decoration:none;">${icon} ${e.name}</a>`
+        : `<span>${icon} ${e.name}</span>`;
+      let actions = '';
+      if (e.kind !== 'directory') {
+        actions += `<button class="btn btn-outline btn-sm" onclick="fsEdit('${e.path}')">Edit</button> `;
+      }
+      actions += `<button class="btn btn-danger btn-sm" onclick="fsDelete('${e.path}')">Del</button>`;
+      html += `<tr><td>${nameLink}</td><td>${e.kind}</td><td>${sizeStr}</td><td><div class="actions">${actions}</div></td></tr>`;
+    }
+    html += '</tbody></table>';
+    if (data.length === 0) html = '<div style="padding:20px;text-align:center;color:#999;">Empty directory</div>';
+    c.innerHTML = html;
+  } catch(e) {
+    c.innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
+  }
+}
+
+async function fsEdit(path) {
+  const editor = document.getElementById('fs-editor');
+  document.getElementById('fs-editor-path').textContent = 'Editing: ' + path;
+  document.getElementById('fs-editor').style.display = 'block';
+  document.getElementById('fs-editor-content').value = 'Loading...';
+  try {
+    const r = await fetch(`/api/sandboxes/{{ name }}/fs/read?path=${encodeURIComponent(path)}`);
+    const data = await r.json();
+    document.getElementById('fs-editor-content').value = data.content || data.error || '';
+    document.getElementById('fs-editor-content').dataset.path = path;
+  } catch(e) {
+    document.getElementById('fs-editor-content').value = 'Error: ' + e.message;
+  }
+}
+
+async function fsSave() {
+  const path = document.getElementById('fs-editor-content').dataset.path;
+  const content = document.getElementById('fs-editor-content').value;
+  try {
+    await fetch(`/api/sandboxes/{{ name }}/fs/write`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({path, content})
+    });
+    document.getElementById('fs-editor').style.display = 'none';
+    fsList();
+  } catch(e) {
+    alert('Save failed: ' + e.message);
+  }
+}
+
+async function fsDelete(path) {
+  if (!confirm('Delete ' + path + '?')) return;
+  try {
+    await fetch(`/api/sandboxes/{{ name }}/fs/remove`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({path})
+    });
+    fsList();
+  } catch(e) {
+    alert('Delete failed: ' + e.message);
+  }
+}
+
+function fsNewFile() {
+  const name = prompt('File path (e.g. /tmp/hello.txt):');
+  if (!name) return;
+  const editor = document.getElementById('fs-editor');
+  document.getElementById('fs-editor-path').textContent = 'Creating: ' + name;
+  document.getElementById('fs-editor-content').value = '';
+  document.getElementById('fs-editor-content').dataset.path = name;
+  editor.style.display = 'block';
+}
+
+function fsNewDir() {
+  const name = prompt('Directory path:');
+  if (!name) return;
+  fetch(`/api/sandboxes/{{ name }}/fs/mkdir`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({path: name})
+  }).then(() => fsList()).catch(e => alert('Error: ' + e.message));
+}
+</script>

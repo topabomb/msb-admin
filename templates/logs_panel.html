@@ -1,0 +1,17 @@
+<div class="card">
+  <div class="card-header"><h2>Live Logs</h2></div>
+  <div class="card-body">
+    <pre id="log-output" class="output" style="height:400px;font-size:11px;overflow-y:auto;">Connecting to log stream...</pre>
+  </div>
+</div>
+
+<script>
+  (function() {
+    const name = "{{ name }}";
+    const el = document.getElementById('log-output');
+    let ws = new WebSocket('ws://' + window.location.host + '/ws/logs/' + name);
+    ws.onmessage = function(e) { el.textContent = e.data; el.scrollTop = el.scrollHeight; };
+    ws.onclose = function() { el.textContent += '\n[disconnected]'; };
+    window.addEventListener('beforeunload', function() { ws.close(); });
+  })();
+</script>

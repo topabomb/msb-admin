@@ -1,0 +1,59 @@
+<div class="modal-overlay">
+  <div class="modal" style="max-width:900px;">
+    <div class="modal-header">
+      <h2>Snapshots</h2>
+      <button class="btn btn-outline btn-sm" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">✕</button>
+    </div>
+    <div class="modal-body">
+      <table>
+        <thead>
+          <tr>
+            <th>Digest</th>
+            <th>Name</th>
+            <th>Size</th>
+            <th>Image</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in snapshots %}
+          <tr>
+            <td><code style="font-size:11px;">{{ s.digest[:16] }}…</code></td>
+            <td>{{ s.name or '-' }}</td>
+            <td>{{ '{:,}'.format(s.size_bytes) }} B</td>
+            <td><code>{{ s.image_ref or '-' }}</code></td>
+            <td>{{ s.created_at }}</td>
+            <td>
+              <div class="actions">
+                <a class="btn btn-outline btn-sm" href="/api/snapshots/{{ s.digest }}/export" download>Export</a>
+                <button class="btn btn-success btn-sm" onclick="restoreSnapshot('{{ s.digest }}')">Restore</button>
+                <button class="btn btn-danger btn-sm" hx-delete="/api/snapshots/{{ s.digest }}" hx-target="closest tr" hx-swap="delete" hx-confirm="Delete snapshot?">Delete</button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not snapshots %}
+          <tr><td colspan="6" style="text-align:center;padding:30px;color:#999;">No snapshots yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+async function restoreSnapshot(digest) {
+  const name = prompt('New sandbox name (leave blank for auto):');
+  try {
+    const r = await fetch('/api/snapshots/restore', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'digest=' + encodeURIComponent(digest) + '&name=' + encodeURIComponent(name || '')});
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    alert('Sandbox "' + data.name + '" created from snapshot with image ' + data.image);
+    location.reload();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+</script>

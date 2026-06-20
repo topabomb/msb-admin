@@ -1,6 +1,10 @@
 # MicroSandbox Admin UI
 
-**MicroSandbox** 轻量级沙箱容器运行时的 Web 管理后台。基于 **FastAPI + Jinja2 + HTMX + xterm.js** 构建，通过官方 `microsandbox` Python SDK 提供沙箱、镜像、快照、卷等资源的实时管理能力。
+[MicroSandbox](https://microsandbox.dev/) 轻量级沙箱容器运行时的 Web 管理后台。基于 **FastAPI + Jinja2 + HTMX + xterm.js** 构建，通过官方 `microsandbox` Python SDK 提供沙箱、镜像、快照、卷等资源的实时管理能力。
+
+- 项目主页：https://microsandbox.dev/
+- 文档：https://docs.microsandbox.dev/
+- GitHub：https://github.com/topabomb/msb-admin
 
 ## 功能
 
